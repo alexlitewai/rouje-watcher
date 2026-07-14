@@ -1,0 +1,52 @@
+name: rouje-watch
+
+on:
+  schedule:
+    # Le cron GitHub est fortement throttlé (constaté sur table-watcher :
+    # 1 déclenchement / 1-3 h). Même astuce que le bot Mosuke : chaque job
+    # boucle ~5h30 en vérifiant toutes les ~4 min, et le groupe de concurrence
+    # met le run suivant en file → enchaînement continu sans chevauchement.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: rouje-watch
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Boucle de surveillance (~5h30, un check toutes les ~4 min)
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          START=$(date +%s)
+          while [ $(( $(date +%s) - START )) -lt 19800 ]; do
+            bash check_rouje.sh || true
+            sleep 240
+          done
+
+      - name: Persister l'état + heartbeat anti-désactivation
+        if: always()
+        run: |
+          # GitHub désactive les crons après 60 jours sans commit :
+          # on committe un heartbeat si le dernier commit date de plus de 25 jours.
+          LAST=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - LAST )) -gt 2160000 ]; then
+            date -u > heartbeat.txt
+          fi
+          if [ -n "$(git status --porcelain state.txt heartbeat.txt)" ]; then
+            git config user.name "rouje-watcher"
+            git config user.email "actions@github.com"
+            git add state.txt heartbeat.txt 2>/dev/null || true
+            git commit -m "état: mise à jour"
+            git pull --rebase origin "$GITHUB_REF_NAME" || true
+            git push origin "HEAD:$GITHUB_REF_NAME"
+          fi
