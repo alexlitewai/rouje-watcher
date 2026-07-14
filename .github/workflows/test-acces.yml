@@ -1,0 +1,15 @@
+name: test-acces-rouje
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Un seul check du stock depuis une IP GitHub
+        run: |
+          UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+          curl -s -A "$UA" -o r.js -w "HTTP %{http_code} | %{size_download} octets\n" "https://www.rouje.com/products/gabin-robe-midi-portefeuille-pois-noir.js"
+          echo "--- 200 premiers caractères ---"
+          head -c 200 r.js; echo
+          echo "--- variants 36/38 ---"
+          jq -r '.variants[] | select(.title|test("/ (36|38)$")) | "\(.title) available=\(.available)"' r.js
